@@ -173,6 +173,111 @@ predict.logitr <- function(
   return(result)
 }
 
+#' Predict conditional probabilities for known panel individuals
+#'
+#' Returns conditional predicted probabilities for new choice tasks using
+#' explicit conditioning histories for known panel individuals in a mixed logit
+#' model.
+#'
+#' @param object is an object of class `logitr` estimated using `logitr()`.
+#' @param conditioning_data a `data.frame` in long format containing the prior
+#' observed choices used to condition on each individual's history. It must
+#' include the model's outcome column, observation ID column, panel ID column,
+#' and all predictor columns used by the fitted model.
+#' @param newdata a `data.frame` in long format containing the new choice tasks
+#' for which to compute conditional probabilities.
+#' @param returnData If `TRUE`, also return the provided `newdata`.
+#' @param ... further arguments.
+#' @return A data frame of conditional predicted probabilities.
+#' @export
+#' @examples
+#' library(logitr)
+#'
+#' mxl_pref <- readRDS(system.file("extdata", "mxl_pref.Rds", package = "logitr"))
+#'
+#' conditioning_data <- subset(yogurt, id %in% c(1, 2))
+#' task_template <- subset(
+#'   yogurt,
+#'   obsID == 1,
+#'   select = c("obsID", "id", "alt", "price", "feat", "brand")
+#' )
+#' newdata <- rbind(
+#'   transform(task_template, obsID = 9001, id = 1),
+#'   transform(task_template, obsID = 9002, id = 2)
+#' )
+#'
+#' conditional_predict(
+#'   mxl_pref,
+#'   conditioning_data = conditioning_data,
+#'   newdata = newdata
+#' )
+conditional_predict <- function(
+  object,
+  conditioning_data,
+  newdata,
+  returnData = FALSE,
+  ...
+) {
+  if (object$modelType != "mxl") {
+    stop('"object" must be a mixed logit model')
+  }
+  inputs <- object$inputs
+  condition <- formatConditionalData(object, conditioning_data)
+  data <- formatConditionalData(object, newdata, outcome_required = FALSE)
+  weights <- getConditionalWeights(object, condition)
+  checkConditionalPanelIDs(data$panelID, weights)
+  probs_mean <- predictConditionalLogitDraws(
+    object, data, weights, getConditionalVDraws(object)
+  )
+  result <- formatProbsMean(probs_mean, data$obsID, inputs$obsID)
+  if (returnData) {
+    result <- addData(object, result, data, newdata)
+  }
+  return(result)
+}
+
+#' Compute conditional posterior means for known panel individuals
+#'
+#' Returns posterior means of the random coefficients for each individual in the
+#' provided conditioning data.
+#'
+#' @param object is an object of class `logitr` estimated using `logitr()`.
+#' @param conditioning_data a `data.frame` in long format containing the prior
+#' observed choices used to condition on each individual's history. It must
+#' include the model's outcome column, observation ID column, panel ID column,
+#' and all predictor columns used by the fitted model.
+#' @param ... further arguments.
+#' @return A data frame of posterior means by individual.
+#' @export
+#' @examples
+#' library(logitr)
+#'
+#' mxl_pref <- readRDS(system.file("extdata", "mxl_pref.Rds", package = "logitr"))
+#'
+#' conditioning_data <- subset(yogurt, id %in% c(1, 2))
+#'
+#' conditional_means(
+#'   mxl_pref,
+#'   conditioning_data = conditioning_data
+#' )
+conditional_means <- function(
+  object,
+  conditioning_data,
+  ...
+) {
+  if (object$modelType != "mxl") {
+    stop('"object" must be a mixed logit model')
+  }
+  condition <- formatConditionalData(object, conditioning_data)
+  weights <- getConditionalWeights(object, condition)
+  means <- getConditionalMeanDraws(object, weights)
+  panelIDName <- object$inputs$panelID
+  means[[panelIDName]] <- rownames(weights)
+  means <- means[c(panelIDName, names(means)[names(means) != panelIDName])]
+  rownames(means) <- NULL
+  return(means)
+}
+
 formatNewData <- function(object, newdata, obsID) {
   inputs <- object$inputs
   newdata <- as.data.frame(newdata) # tibbles break things
@@ -192,6 +297,33 @@ formatNewData <- function(object, newdata, obsID) {
   }
   obsID <- newdata[, obsIDName]
   return(list(X = X, scalePar = scalePar, obsID = obsID))
+}
+
+formatConditionalData <- function(object, newdata, outcome_required = TRUE) {
+  inputs <- object$inputs
+  newdata <- as.data.frame(newdata)
+  newdata <- checkFactorLevels(object, newdata)
+  recoded <- recodeData(newdata, inputs$pars, inputs$randPars)
+  X <- recoded$X
+  predictParCheck(object, X)
+  scalePar <- NA
+  if (object$modelSpace == "wtp") {
+    scalePar <- as.matrix(
+      newdata[, which(colnames(newdata) == object$inputs$scalePar)])
+  }
+  obsID <- newdata[, inputs$obsID]
+  panelID <- newdata[, inputs$panelID]
+  outcome <- NULL
+  if (outcome_required) {
+    outcome <- as.matrix(newdata[, inputs$outcome])
+  }
+  return(list(
+    X = X,
+    scalePar = scalePar,
+    obsID = obsID,
+    panelID = panelID,
+    outcome = outcome
+  ))
 }
 
 # If some factor levels present in the data used to estimate the model
@@ -298,6 +430,64 @@ predictLogitDraws <- function(coefs, object, data, getVDraws) {
   VDraws <- getVDraws(betaDraws, data$X, data$scalePar, object$n)
   logitDraws <- predictLogit(VDraws, data$obsID)
   return(rowMeans(logitDraws, na.rm = TRUE))
+}
+
+getConditionalWeights <- function(object, data) {
+  correlation <- object$inputs$correlation
+  coefs <- stats::coef(object)
+  betaDraws <- makeBetaDraws(
+    coefs, object$parIDs, object$n, object$standardDraws, correlation
+  )
+  colnames(betaDraws) <- names(object$parSetup)
+  betaDraws <- selectDraws(betaDraws, object$modelSpace, data$X)
+  VDraws <- getConditionalVDraws(object)(betaDraws, data$X, data$scalePar, object$n)
+  logitDraws <- predictLogit(VDraws, data$obsID)
+  chosenDraws <- logitDraws[as.vector(data$outcome) == 1, , drop = FALSE]
+  chosenPanelID <- data$panelID[as.vector(data$outcome) == 1]
+  logWeights <- rowsum(log(chosenDraws), chosenPanelID, reorder = FALSE)
+  logWeights <- sweep(logWeights, 1, apply(logWeights, 1, max), "-")
+  weights <- exp(logWeights)
+  return(weights / rowSums(weights))
+}
+
+getConditionalVDraws <- function(object) {
+  if (object$modelSpace == "wtp") {
+    return(getMxlV_wtp)
+  }
+  return(getMxlV_pref)
+}
+
+getConditionalMeanDraws <- function(object, weights) {
+  correlation <- object$inputs$correlation
+  coefs <- stats::coef(object)
+  betaDraws <- makeBetaDraws(
+    coefs, object$parIDs, object$n, object$standardDraws, correlation
+  )
+  colnames(betaDraws) <- names(object$parSetup)
+  betaDraws <- as.data.frame(betaDraws[, object$parIDs$r, drop = FALSE])
+  means <- lapply(betaDraws, function(draw) as.vector(weights %*% draw))
+  return(as.data.frame(means))
+}
+
+predictConditionalLogitDraws <- function(object, data, weights, getVDraws) {
+  correlation <- object$inputs$correlation
+  coefs <- stats::coef(object)
+  betaDraws <- makeBetaDraws(
+    coefs, object$parIDs, object$n, object$standardDraws, correlation
+  )
+  colnames(betaDraws) <- names(object$parSetup)
+  betaDraws <- selectDraws(betaDraws, object$modelSpace, data$X)
+  VDraws <- getVDraws(betaDraws, data$X, data$scalePar, object$n)
+  logitDraws <- predictLogit(VDraws, data$obsID)
+  panelWeights <- weights[match(data$panelID, rownames(weights)), , drop = FALSE]
+  return(rowSums(logitDraws * panelWeights))
+}
+
+checkConditionalPanelIDs <- function(panelID, weights) {
+  missingIDs <- setdiff(unique(panelID), rownames(weights))
+  if (length(missingIDs) > 0) {
+    stop("All `panelID` values in `newdata` must appear in the conditioning data")
+  }
 }
 
 # Functions for formatting the probabilities

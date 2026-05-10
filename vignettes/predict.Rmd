@@ -27,6 +27,8 @@ You can make predictions for any set of alternatives, so long as the columns in 
 
 Predictions can be made using both preference space and WTP space models, as well as multinomial logit and mixed logit models. For mixed logit models, heterogeneity is modeled by simulating draws from the population estimates of the estimated model.
 
+When the same panel individuals are observed again in new tasks, `predict()` remains the unconditional population-level predictor. For that known-individual workflow, `logitr` also provides `conditional_predict()` and `conditional_means()`, which condition on each individual's observed history before predicting new tasks.
+
 # Predicting probabilities
 
 ## Preference space models
@@ -129,6 +131,49 @@ ggplot(probs, aes(x = alt, y = predicted_prob, fill = model)) +
 
 ```{r probabilities, echo=FALSE}
 knitr::include_graphics('probs.png')
+```
+
+## Conditional prediction for known panel individuals
+
+For panel mixed logit models, `predict()` continues to average over the unconditional population distribution. If you observe the same individuals again in new tasks, use `conditional_predict()` with an explicit conditioning panel instead. This reweights the model's stored simulation draws by how well each draw explains the individual's observed conditioning choices, following the logic in Revelt and Train [@ReveltTrain2000].
+
+The example below uses a saved preference-space MXL model estimated on the `yogurt` data. We condition on prior observed choices for two households, then compare unconditional and conditional predictions for the same held-out choice tasks:
+
+```{r}
+mxl_pref <- readRDS(system.file("extdata", "mxl_pref.Rds", package = "logitr"))
+
+conditioning_data <- subset(yogurt, id %in% c(1, 2) & obsID <= 10)
+heldout_tasks <- subset(
+  yogurt,
+  id %in% c(1, 2) & obsID %in% c(11, 12),
+  select = c("obsID", "id", "alt", "price", "feat", "brand")
+)
+
+unconditional <- predict(
+  mxl_pref,
+  newdata = heldout_tasks,
+  obsID = "obsID"
+)
+
+conditional <- conditional_predict(
+  mxl_pref,
+  conditioning_data = conditioning_data,
+  newdata = heldout_tasks
+)
+
+head(unconditional)
+head(conditional)
+```
+
+The two calls answer different questions: `predict()` treats those held-out tasks as new draws from the population distribution, while `conditional_predict()` uses the observed conditioning histories for the same households.
+
+If you want individual-level summaries of the posterior random coefficients implied by the conditioning data, use `conditional_means()`:
+
+```{r}
+conditional_means(
+  mxl_pref,
+  conditioning_data = conditioning_data
+)
 ```
 
 # Predicting outcomes
