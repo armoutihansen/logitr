@@ -21,7 +21,7 @@ knitr::opts_chunk$set(
 set.seed(5678)
 ```
 
-Once a model has been estimated, it can be used to predict probabilities and / or outcomes for a set of alternatives. This vignette demonstrates examples of how to so using the `predict()` method along with an estimated model.
+Once a model has been estimated, it can be used to predict probabilities and / or outcomes for a set of alternatives. This vignette shows how to do that with the `predict()` method.
 
 You can make predictions for any set of alternatives, so long as the columns in the alternatives correspond to estimated coefficients in your model. By default, if no new data are provided via the `newdata` argument, then predictions will be made for the original data used to estimate the model.
 
@@ -135,16 +135,25 @@ knitr::include_graphics('probs.png')
 
 ## Conditional prediction for known panel individuals
 
-For panel mixed logit models, `predict()` continues to average over the unconditional population distribution. If you observe the same individuals again in new tasks, use `conditional_predict()` with an explicit conditioning panel instead. This reweights the model's stored simulation draws by how well each draw explains the individual's observed conditioning choices, following the logic in Revelt and Train [@ReveltTrain2000].
+For panel mixed logit models, `predict()` still averages over the population distribution. If you observe the same individuals again in new tasks, use `conditional_predict()` with explicit conditioning data instead. The function reweights the model's stored simulation draws by how well each draw explains the observed conditioning choices, following Revelt and Train [@ReveltTrain2000].
 
-The example below uses a saved preference-space MXL model estimated on the `yogurt` data. We condition on prior observed choices for two households, then compare unconditional and conditional predictions for the same held-out choice tasks:
+The example below estimates a preference-space MXL model on a subset of the `yogurt` data. It conditions on earlier choices for two households and then compares unconditional and conditional predictions for the same held-out tasks:
 
 ```{r}
-mxl_pref <- readRDS(system.file("extdata", "mxl_pref.Rds", package = "logitr"))
+example_data <- subset(yogurt, id %in% 1:8)
+mxl_pref <- logitr(
+  data = example_data,
+  outcome = "choice",
+  obsID = "obsID",
+  panelID = "id",
+  pars = c("price", "feat", "brand"),
+  randPars = c(feat = "n", brand = "n"),
+  numDraws = 10
+)
 
-conditioning_data <- subset(yogurt, id %in% c(1, 2) & obsID <= 10)
+conditioning_data <- subset(example_data, id %in% c(1, 2) & obsID <= 10)
 heldout_tasks <- subset(
-  yogurt,
+  example_data,
   id %in% c(1, 2) & obsID %in% c(11, 12),
   select = c("obsID", "id", "alt", "price", "feat", "brand")
 )
@@ -165,7 +174,7 @@ head(unconditional)
 head(conditional)
 ```
 
-The two calls answer different questions: `predict()` treats those held-out tasks as new draws from the population distribution, while `conditional_predict()` uses the observed conditioning histories for the same households.
+The two calls answer different questions. `predict()` treats the held-out tasks as draws from the population distribution, while `conditional_predict()` uses the observed histories for those same households.
 
 If you want individual-level summaries of the posterior random coefficients implied by the conditioning data, use `conditional_means()`:
 

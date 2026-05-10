@@ -21,14 +21,23 @@ A data frame of posterior means by individual.
 }
 \description{
 Returns posterior means of the random coefficients for each individual in the
-provided conditioning data.
+conditioning data.
 }
 \examples{
 library(logitr)
 
-mxl_pref <- readRDS(system.file("extdata", "mxl_pref.Rds", package = "logitr"))
+example_data <- subset(yogurt, id \%in\% 1:8)
+mxl_pref <- logitr(
+  data = example_data,
+  outcome = "choice",
+  obsID = "obsID",
+  panelID = "id",
+  pars = c("price", "feat", "brand"),
+  randPars = c(feat = "n"),
+  numDraws = 10
+)
 
-conditioning_data <- subset(yogurt, id \%in\% c(1, 2))
+conditioning_data <- subset(example_data, id \%in\% c(1, 2))
 
 conditional_means(
   mxl_pref,

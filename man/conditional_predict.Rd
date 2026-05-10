@@ -31,16 +31,24 @@ for which to compute conditional probabilities.}
 A data frame of conditional predicted probabilities.
 }
 \description{
-Returns conditional predicted probabilities for new choice tasks using
-explicit conditioning histories for known panel individuals in a mixed logit
-model.
+Returns conditional predicted probabilities for new choice tasks in a mixed
+logit model, using explicit conditioning histories for known individuals.
 }
 \examples{
 library(logitr)
 
-mxl_pref <- readRDS(system.file("extdata", "mxl_pref.Rds", package = "logitr"))
+example_data <- subset(yogurt, id \%in\% 1:8)
+mxl_pref <- logitr(
+  data = example_data,
+  outcome = "choice",
+  obsID = "obsID",
+  panelID = "id",
+  pars = c("price", "feat", "brand"),
+  randPars = c(feat = "n"),
+  numDraws = 10
+)
 
-conditioning_data <- subset(yogurt, id \%in\% c(1, 2))
+conditioning_data <- subset(example_data, id \%in\% c(1, 2))
 task_template <- subset(
   yogurt,
   obsID == 1,
