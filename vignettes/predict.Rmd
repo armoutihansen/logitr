@@ -169,4 +169,81 @@ accuracy_wtp
 
 These results show that both models correctly predicted choice for approximately `r scales::percent(round(accuracy_pref, 2))` of the observations in the `yogurt` data frame, which is significantly better than random (25%).
 
+# Conditional prediction for known panel individuals
+
+For panel mixed logit models, `predict()` can also compute **conditional**
+holdout probabilities for individuals who were observed during estimation.
+This is useful when you want out-of-sample predictions for known panel members
+to reflect their own choice histories rather than only the population
+distribution over random coefficients.
+
+In this setting, `logitr` reuses the fitted simulation draws and computes
+posterior draw weights from each individual's full estimation-sample choice
+history. The resulting holdout probability is the same discrete-draw
+approximation discussed in Revelt and Train [@ReveltTrain2000] and summarized
+in upstream issue `jhelvy/logitr#38`:
+
+$$
+\tilde{P}(i, T+1 | y, \theta) =
+\frac{\sum_r L(i, T+1 | \beta^r) P(y | \beta^r)}
+{\sum_r P(y | \beta^r)}
+$$
+
+where $P(y | \beta^r)$ is the probability of the individual's full observed
+choice sequence under draw $r$.
+
+Conditional prediction is currently limited to:
+
+- panel mixed logit models
+- holdout `newdata`
+- a valid `panelID` column in `newdata`
+- point predictions only (`interval = "none"`)
+
+The conditional path keeps the usual `predict()` workflow: it returns one row
+per alternative, supports `type` and `returnData`, and works with both raw
+holdout inputs and already-encoded holdout inputs when the encoded columns
+match the fitted model.
+
+Here is a minimal example:
+
+```{r eval=FALSE}
+library(logitr)
+
+panel_train <- subset(yogurt, id %in% 1:8 & obsID <= 150)
+
+panel_mxl <- logitr(
+  data = panel_train,
+  outcome = "choice",
+  obsID = "obsID",
+  panelID = "id",
+  pars = c("price", "feat", "brand"),
+  randPars = c(price = "n"),
+  numDraws = 20
+)
+
+holdout <- data.frame(
+  id = c(1, 1, 1, 1, 2, 2, 2, 2),
+  obsID = c(1001, 1001, 1001, 1001, 1002, 1002, 1002, 1002),
+  price = c(0.1, 0.2, 0.3, 0.4, 0.1, 0.2, 0.3, 0.4),
+  feat = c(0, 1, 0, 1, 0, 1, 0, 1),
+  brand = rep(c("dannon", "hiland", "weight", "yoplait"), 2)
+)
+
+# Population prediction
+predict(panel_mxl, newdata = holdout, obsID = "obsID")
+
+# Conditional prediction for known individuals
+predict(
+  panel_mxl,
+  newdata = holdout,
+  obsID = "obsID",
+  panelID = "id",
+  conditional = TRUE
+)
+```
+
+The same conditional workflow also applies to WTP-space mixed logit models.
+For first-release honesty, confidence and prediction intervals are rejected in
+conditional mode.
+
 # References

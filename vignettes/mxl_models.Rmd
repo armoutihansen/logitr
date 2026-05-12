@@ -60,6 +60,12 @@ where the parameters $\alpha$, $\beta_1$, $\beta_2$, $\beta_3$, and $\beta_4$ ha
 
 Note that since the `yogurt` data has a panel structure (i.e. multiple choice observations for each respondent), it is necessary to set the `panelID` argument to the `id` variable, which identifies the individual. This will use the panel version of the log-likelihood (see [Train 2009 chapter 6](https://eml.berkeley.edu/books/choice2nd/Ch06_p134-150.pdf), section 6.7 for details).
 
+Once a panel mixed logit model has been estimated, `predict()` can also be
+used to generate **conditional** holdout probabilities for known individuals.
+That workflow is documented in the prediction vignette and uses the
+Revelt-and-Train style posterior reweighting of the fitted draws for each
+individual's observed history.
+
 Finally, as with WTP space models, it is recommended to use a multistart search for mixed logit models as they are non-convex. This is implemented in the example below by setting `numMultiStarts = 10`:
 
 ```{r eval=FALSE}

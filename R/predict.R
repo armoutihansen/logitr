@@ -12,12 +12,16 @@
 #' @param object is an object of class `logitr` (a model estimated using
 #' the 'logitr()` function).
 #' @param newdata a `data.frame`. Each row is an alternative and each column an
-#' attribute corresponding to parameter names in the estimated model. Defaults
-#' to `NULL`, in which case predictions are made on the original data used to
-#' estimate the model.
+#' attribute corresponding to parameter names in the estimated model. For
+#' models estimated from raw inputs, `newdata` may contain either those raw
+#' inputs or the equivalent encoded prediction columns. Defaults to `NULL`, in
+#' which case predictions are made on the original data used to estimate the
+#' model.
 #' @param obsID The name of the column that identifies each set of
 #' alternatives in the data. Required if newdata != NULL. Defaults to `NULL`,
 #' in which case the value for `obsID` from the data in `object` is used.
+#' @param panelID The name of the column that identifies individuals in
+#' `newdata`. Required when `conditional = TRUE`.
 #' @param type A character vector defining what to predict: `prob` for
 #' probabilities, `outcomes` for outcomes. If you want both outputs, use
 #' `c("prob", "outcome")`. Outcomes are predicted randomly according to the
@@ -45,8 +49,18 @@
 #' @param randScale The random distribution for the scale parameter: `'n'` for
 #' normal, `'ln'` for log-normal, or `'cn'` for zero-censored normal. Only used
 #' for WTP space MXL models. Defaults to `NULL`.
+#' @param conditional If `TRUE`, compute conditional predictions for known panel
+#' individuals using their estimation-sample choice histories. Defaults to
+#' `FALSE`.
 #' @param ... further arguments.
 #' @return A data frame of predicted probabilities and / or outcomes.
+#' @details For panel mixed logit models, setting `conditional = TRUE` computes
+#' holdout probabilities using posterior draw weights based on each
+#' individual's full estimation-sample choice history. The implementation uses
+#' the fitted simulation draws and the same discrete-draw approximation to the
+#' conditional distribution discussed by Revelt and Train (2000). Conditional
+#' prediction is limited to holdout `newdata` with a valid `panelID` and
+#' currently supports point predictions only.
 #' @export
 #' @examples
 #' library(logitr)
@@ -93,6 +107,7 @@ predict.logitr <- function(
   object,
   newdata    = NULL,
   obsID      = NULL,
+  panelID    = NULL,
   type       = "prob",
   returnData = FALSE,
   interval   = "none",
@@ -102,6 +117,7 @@ predict.logitr <- function(
   scalePar   = NULL,
   randPars   = NULL,
   randScale  = NULL,
+  conditional = FALSE,
   ci,
   ...
 ) {
@@ -116,7 +132,9 @@ predict.logitr <- function(
       "set interval = 'confidence'"
     )
   }
-  predictInputsCheck(object, newdata, obsID, type, level, interval)
+  predictInputsCheck(
+    object, newdata, obsID, panelID, type, level, interval, conditional
+  )
   # If user provides parameters, use them instead of the original pars
   # used to estimate the model
   # if (!is.null(pars)) { object$inputs$pars <- pars }
@@ -130,17 +148,15 @@ predict.logitr <- function(
       X        = d$X,
       scalePar = d$scalePar,
       obsID    = d$obsID,
-      outcome  = d$outcome)
+      outcome  = d$outcome,
+      panelID  = d$panelID)
     obsID <- object$inputs$obsID
   } else {
-    data <- formatNewData(object, newdata, obsID)
+    data <- formatNewData(object, newdata, obsID, panelID)
   }
-  getV <- getMnlV_pref
-  getVDraws <- getMxlV_pref
-  if (object$modelSpace == "wtp") {
-    getVDraws <- getMxlV_wtp
-    getV <- getMnlV_wtp
-  }
+  predictFuncs <- getPredictVFunctions(object$modelSpace)
+  getV <- predictFuncs$getV
+  getVDraws <- predictFuncs$getVDraws
 
   # Decide what to predict
   predict_outcome <- FALSE
@@ -155,8 +171,13 @@ predict.logitr <- function(
   }
 
   if (object$modelType == "mxl") {
-    result <- getMxlProbs(
-      object, data, obsID, interval, level, numDrawsCI, getV, getVDraws)
+    if (conditional) {
+      result <- getConditionalMxlProbs(object, data, obsID, panelID)
+    } else {
+      result <- getMxlProbs(
+        object, data, obsID, interval, level, numDrawsCI, getV, getVDraws
+      )
+    }
   } else {
     result <- getMnlProbs(
       object, data, obsID, interval, level, numDrawsCI, getV, getVDraws)
@@ -173,12 +194,16 @@ predict.logitr <- function(
   return(result)
 }
 
-formatNewData <- function(object, newdata, obsID) {
+formatNewData <- function(object, newdata, obsID, panelID = NULL) {
   inputs <- object$inputs
   newdata <- as.data.frame(newdata) # tibbles break things
-  newdata <- checkFactorLevels(object, newdata)
-  recoded <- recodeData(newdata, inputs$pars, inputs$randPars)
-  X <- recoded$X
+  if (hasRawPredictionInputs(object, newdata)) {
+    newdata <- checkFactorLevels(object, newdata)
+    recoded <- recodeData(newdata, inputs$pars, inputs$randPars)
+    X <- recoded$X
+  } else {
+    X <- getEncodedPredictionData(object, newdata)
+  }
   predictParCheck(object, X) # Check if model pars match those from newdata
   scalePar <- NA
   if (object$modelSpace == "wtp") {
@@ -191,7 +216,29 @@ formatNewData <- function(object, newdata, obsID) {
     obsIDName <- obsID
   }
   obsID <- newdata[, obsIDName]
-  return(list(X = X, scalePar = scalePar, obsID = obsID))
+  panelIDVals <- NULL
+  if (!is.null(panelID)) {
+    panelIDVals <- newdata[, panelID]
+  }
+  return(list(X = X, scalePar = scalePar, obsID = obsID, panelID = panelIDVals))
+}
+
+hasRawPredictionInputs <- function(object, newdata) {
+  inputs <- object$inputs
+  required <- inputs$pars
+  if (object$modelSpace == "wtp") {
+    required <- c(required, inputs$scalePar)
+  }
+  all(required %in% names(newdata))
+}
+
+getEncodedPredictionData <- function(object, newdata) {
+  modelPars <- names(object$parSetup)
+  if (object$modelSpace == "wtp") {
+    modelPars <- modelPars[-1]
+  }
+  availablePars <- modelPars[modelPars %in% names(newdata)]
+  as.matrix(newdata[, availablePars, drop = FALSE])
 }
 
 # If some factor levels present in the data used to estimate the model
@@ -255,6 +302,16 @@ getMxlProbs <- function(
   probs <- formatProbsUnc(
     probs_mean, logitUncDraws, data$obsID, obsIDName, level)
   return(probs)
+}
+
+getConditionalMxlProbs <- function(object, data, obsIDName, panelIDName) {
+  weightEngine <- makePosteriorWeightEngine(object)
+  panelIndex <- matchPosteriorWeightPanelIDs(weightEngine, data$panelID, panelIDName)
+  logitDraws <- getPredictionDraws(object, data)
+  probs_mean <- rowSums(
+    logitDraws * weightEngine$weights[panelIndex, , drop = FALSE]
+  )
+  formatProbsMean(probs_mean, data$obsID, obsIDName)
 }
 
 probsNoIntervals <- function(probs_mean, data, interval, obsIDName) {

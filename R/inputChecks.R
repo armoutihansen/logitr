@@ -101,7 +101,9 @@ checkOptions <- function(options) {
   return(options)
 }
 
-predictInputsCheck <- function(object, newdata, obsID, type, level, interval) {
+predictInputsCheck <- function(
+    object, newdata, obsID, panelID, type, level, interval, conditional
+) {
   if (!is_logitr(object)) {
     stop(
       'The "object" argument must be a object estimated using the logitr() ',
@@ -120,6 +122,29 @@ predictInputsCheck <- function(object, newdata, obsID, type, level, interval) {
           'the "newdata" data frame'
         )
       }
+    }
+  }
+  if (!is.logical(conditional) || length(conditional) != 1 || is.na(conditional)) {
+    stop('"conditional" must be either TRUE or FALSE')
+  }
+  if (conditional) {
+    if (object$modelType != "mxl") {
+      stop('Conditional prediction is only supported for mixed logit models')
+    }
+    if (is.null(object$inputs$panelID)) {
+      stop('Conditional prediction is only supported for panel mixed logit models')
+    }
+    if (is.null(newdata)) {
+      stop('"newdata" must be specified when conditional = TRUE')
+    }
+    if (is.null(panelID)) {
+      stop('"panelID" must be specified when conditional = TRUE')
+    }
+    if (!panelID %in% names(newdata)) {
+      stop(
+        'The "panelID" argument refers to a column that does not exist in ',
+        'the "newdata" data frame'
+      )
     }
   }
   if ("probs" %in% type) {
@@ -148,6 +173,9 @@ predictInputsCheck <- function(object, newdata, obsID, type, level, interval) {
     if (!interval %in% c("none", "confidence", "prediction")) {
       stop("'interval' must be 'none', 'confidence', or 'prediction'")
     }
+  }
+  if (conditional && !identical(interval, "none")) {
+    stop('Conditional prediction currently supports only interval = "none"')
   }
 }
 

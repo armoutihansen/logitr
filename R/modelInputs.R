@@ -69,6 +69,10 @@ getModelInputs <- function(
 
   # Setup IDs
   panel <- !is.null(inputs$panelID)
+  panelIDValues <- NULL
+  if (panel) {
+    panelIDValues <- data[[inputs$panelID]][!duplicated(data[[inputs$panelID]])]
+  }
   if (panel) { panelID <- makePanelID(data, inputs) }
   obsID <- makeObsID(data, inputs, outcome)
   inputs <- setupClusterID(inputs, panel, robust, weightsUsed)
@@ -118,6 +122,7 @@ getModelInputs <- function(
     outcome   = outcome,
     obsID     = obsID,
     panelID   = panelID,
+    panelIDValues = panelIDValues,
     clusterID = clusterID,
     weights   = weights,
     factorLevels = factorLevels

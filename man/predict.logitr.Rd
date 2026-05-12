@@ -8,6 +8,7 @@
   object,
   newdata = NULL,
   obsID = NULL,
+  panelID = NULL,
   type = "prob",
   returnData = FALSE,
   interval = "none",
@@ -17,6 +18,7 @@
   scalePar = NULL,
   randPars = NULL,
   randScale = NULL,
+  conditional = FALSE,
   ci,
   ...
 )
@@ -26,13 +28,18 @@
 the 'logitr()` function).}
 
 \item{newdata}{a \code{data.frame}. Each row is an alternative and each column an
-attribute corresponding to parameter names in the estimated model. Defaults
-to \code{NULL}, in which case predictions are made on the original data used to
-estimate the model.}
+attribute corresponding to parameter names in the estimated model. For
+models estimated from raw inputs, \code{newdata} may contain either those raw
+inputs or the equivalent encoded prediction columns. Defaults to \code{NULL},
+in which case predictions are made on the original data used to estimate the
+model.}
 
 \item{obsID}{The name of the column that identifies each set of
 alternatives in the data. Required if newdata != NULL. Defaults to \code{NULL},
 in which case the value for \code{obsID} from the data in \code{object} is used.}
+
+\item{panelID}{The name of the column that identifies individuals in
+\code{newdata}. Required when \code{conditional = TRUE}.}
 
 \item{type}{A character vector defining what to predict: \code{prob} for
 probabilities, \code{outcomes} for outcomes. If you want both outputs, use
@@ -67,6 +74,10 @@ values the distribution: \code{'n'} for normal, \code{'ln'} for log-normal, or
 normal, \code{'ln'} for log-normal, or \code{'cn'} for zero-censored normal. Only used
 for WTP space MXL models. Defaults to \code{NULL}.}
 
+\item{conditional}{If \code{TRUE}, compute conditional predictions for known panel
+individuals using their estimation-sample choice histories. Defaults to
+\code{FALSE}.}
+
 \item{ci}{No longer used as of v1.1.0 - if provided, this is passed
 to the \code{level} argument, \code{interval} is set to \code{"confidence"},
 and a warning is displayed.}
@@ -75,6 +86,15 @@ and a warning is displayed.}
 }
 \value{
 A data frame of predicted probabilities and / or outcomes.
+}
+\details{
+For panel mixed logit models, setting \code{conditional = TRUE} computes
+holdout probabilities using posterior draw weights based on each
+individual's full estimation-sample choice history. The implementation uses
+the fitted simulation draws and the same discrete-draw approximation to the
+conditional distribution discussed by Revelt and Train (2000). Conditional
+prediction is limited to holdout \code{newdata} with a valid \code{panelID} and
+currently supports point predictions only.
 }
 \description{
 This method is used for computing predicted probabilities and / or outcomes
