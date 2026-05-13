@@ -180,8 +180,7 @@ distribution over random coefficients.
 In this setting, `logitr` reuses the fitted simulation draws and computes
 posterior draw weights from each individual's full estimation-sample choice
 history. The resulting holdout probability is the same discrete-draw
-approximation discussed in Revelt and Train [@ReveltTrain2000] and summarized
-in upstream issue `jhelvy/logitr#38`:
+approximation discussed in Revelt and Train [@ReveltTrain2000]:
 
 $$
 \tilde{P}(i, T+1 | y, \theta) =
@@ -204,46 +203,77 @@ per alternative, supports `type` and `returnData`, and works with both raw
 holdout inputs and already-encoded holdout inputs when the encoded columns
 match the fitted model.
 
-Here is a minimal example:
+Here is a reproducible example built from a split of the `yogurt` data. For
+one known individual, we hold out their last three observations and train the
+model on everything else, including their earlier observations. 
 
-```{r eval=FALSE}
+```{r}
 library(logitr)
 
-panel_train <- subset(yogurt, id %in% 1:8 & obsID <= 150)
+set.seed(4)
+
+target_id <- 16
+hold_last <- 3
+
+obs <- unique(yogurt$obsID[yogurt$id == target_id])
+hold_obs <- tail(obs, hold_last)
+
+train_rows <- !(yogurt$id == target_id & yogurt$obsID %in% hold_obs)
+hold_rows <- yogurt$id == target_id & yogurt$obsID %in% hold_obs
+
+panel_train <- subset(yogurt, train_rows)
+holdout <- subset(
+  yogurt, hold_rows,
+  select = c(id, obsID, price, feat, brand, choice)
+)
 
 panel_mxl <- logitr(
   data = panel_train,
   outcome = "choice",
   obsID = "obsID",
   panelID = "id",
-  pars = c("price", "feat", "brand"),
-  randPars = c(price = "n"),
+  pars = c("feat", "brand"),
+  scalePar = "price",
+  randPars = c(feat = "n", brand = "n"),
   numDraws = 20
 )
 
-holdout <- data.frame(
-  id = c(1, 1, 1, 1, 2, 2, 2, 2),
-  obsID = c(1001, 1001, 1001, 1001, 1002, 1002, 1002, 1002),
-  price = c(0.1, 0.2, 0.3, 0.4, 0.1, 0.2, 0.3, 0.4),
-  feat = c(0, 1, 0, 1, 0, 1, 0, 1),
-  brand = rep(c("dannon", "hiland", "weight", "yoplait"), 2)
+# Population prediction
+population <- predict(
+  panel_mxl,
+  newdata = subset(holdout, select = -choice),
+  obsID = "obsID"
 )
 
-# Population prediction
-predict(panel_mxl, newdata = holdout, obsID = "obsID")
-
 # Conditional prediction for known individuals
-predict(
+conditional <- predict(
   panel_mxl,
-  newdata = holdout,
+  newdata = subset(holdout, select = -choice),
   obsID = "obsID",
   panelID = "id",
   conditional = TRUE
 )
+
+comparison <- data.frame(
+  id = holdout$id,
+  obsID = holdout$obsID,
+  brand = holdout$brand,
+  choice = holdout$choice,
+  population = round(population$predicted_prob, 3),
+  conditional = round(conditional$predicted_prob, 3)
+)
+
+comparison
+
+max(abs(population$predicted_prob - conditional$predicted_prob))
+
+mean(population$predicted_prob[holdout$choice == 1])
+mean(conditional$predicted_prob[holdout$choice == 1])
 ```
 
-The same conditional workflow also applies to WTP-space mixed logit models.
-For first-release honesty, confidence and prediction intervals are rejected in
-conditional mode.
+
+The conditional predictions differ sharply from the population predictions
+because `predict(..., conditional = TRUE)` reweights the fitted draws using the
+person's own estimation-sample history. 
 
 # References

@@ -47,7 +47,9 @@ test_that("posterior weight engine returns finite non-negative weights", {
 
 test_that("posterior weight engine matches the Revelt-Train draw-weight formula", {
   predict_funcs <- getPredictVFunctions(panel_model_weights$modelSpace)
-  data_diff <- makeDiffData(panel_model_weights$data, panel_model_weights$modelType)
+  data_diff <- makeDiffData(
+    panel_model_weights$data, panel_model_weights$modelType
+  )
   beta_draws <- makeBetaDraws(
     stats::coef(panel_model_weights),
     panel_model_weights$parIDs,
@@ -56,7 +58,9 @@ test_that("posterior weight engine matches the Revelt-Train draw-weight formula"
     panel_model_weights$inputs$correlation
   )
   colnames(beta_draws) <- names(panel_model_weights$parSetup)
-  beta_draws <- selectDraws(beta_draws, panel_model_weights$modelSpace, data_diff$X)
+  beta_draws <- selectDraws(
+    beta_draws, panel_model_weights$modelSpace, data_diff$X
+  )
   v_draws <- predict_funcs$getVDraws(
     beta_draws, data_diff$X, data_diff$scalePar, panel_model_weights$n
   )
@@ -78,10 +82,16 @@ test_that("posterior weight engine matches the Revelt-Train draw-weight formula"
 
 test_that("conditional holdout probabilities match the weighted draw formula", {
   engine <- makePosteriorWeightEngine(panel_model_weights)
-  holdout_data <- formatNewData(panel_model_weights, holdout_weights, "obsID", "id")
-  panel_index <- matchPosteriorWeightPanelIDs(engine, holdout_data$panelID, "id")
+  holdout_data <- formatNewData(
+    panel_model_weights, holdout_weights, "obsID", "id"
+  )
+  panel_index <- matchPosteriorWeightPanelIDs(
+    engine, holdout_data$panelID, "id"
+  )
   holdout_draws <- getPredictionDraws(panel_model_weights, holdout_data)
-  manual_probs <- rowSums(holdout_draws * engine$weights[panel_index, , drop = FALSE])
+  manual_probs <- rowSums(
+    holdout_draws * engine$weights[panel_index, , drop = FALSE]
+  )
 
   conditional_probs <- predict(
     panel_model_weights,
